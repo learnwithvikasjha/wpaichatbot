@@ -46,21 +46,21 @@ class AIChatbot_Public {
     public function chat_widget() {
         ?>
         <!-- AI Chatbot Widget Start -->
-        <div id="aichatbot-widget" style="position: fixed; bottom: 20px; right: 20px; z-index: 9999; background: red; padding: 10px; border: 2px solid black;">
-            <div id="aichatbot-toggle" style="width: 60px; height: 60px; background: #007cba; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 24px; color: white;">💬</div>
-            <div id="aichatbot-box" style="display:none; width: 300px; height: 400px; background: white; border: 1px solid #ddd; border-radius: 8px; position: absolute; bottom: 70px; right: 0;">
-                <div id="aichatbot-header" style="background: #007cba; color: white; padding: 10px; border-radius: 8px 8px 0 0;">
+        <div id="aichatbot-widget">
+            <div id="aichatbot-toggle">💬</div>
+            <div id="aichatbot-box" style="display:none;">
+                <div id="aichatbot-header">
                     <span><?php _e('Chat', 'aichatbot'); ?></span>
-                    <span id="aichatbot-minimize" style="cursor: pointer;">−</span>
+                    <span id="aichatbot-minimize">−</span>
                 </div>
-                <div id="aichatbot-messages" style="height: 280px; overflow-y: auto; padding: 10px;"></div>
-                <div id="aichatbot-input" style="padding: 10px;">
-                    <input type="text" id="aichatbot-message-input" placeholder="<?php _e('Type message...', 'aichatbot'); ?>" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 5px; box-sizing: border-box;">
+                <div id="aichatbot-messages"></div>
+                <div id="aichatbot-input">
+                    <input type="text" id="aichatbot-message-input" placeholder="<?php _e('Type message...', 'aichatbot'); ?>">
                     <?php if (!is_user_logged_in()) : ?>
-                        <input type="text" id="aichatbot-user-name" placeholder="<?php _e('Your name (optional)', 'aichatbot'); ?>" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 5px; box-sizing: border-box;">
+                        <input type="text" id="aichatbot-user-name" placeholder="<?php _e('Your name (optional)', 'aichatbot'); ?>">
                     <?php endif; ?>
-                    <button id="aichatbot-send-btn" style="width: 100%; padding: 8px; background: #007cba; color: white; border: none; border-radius: 4px; cursor: pointer;"><?php _e('Send', 'aichatbot'); ?></button>
-                    <button id="aichatbot-test-btn" style="width: 100%; padding: 4px; background: #666; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px; font-size: 10px;">Test AI</button>
+                    <button id="aichatbot-send-btn"><?php _e('Send', 'aichatbot'); ?></button>
+                    <button id="aichatbot-test-btn">Test AI</button>
                 </div>
             </div>
         </div>
