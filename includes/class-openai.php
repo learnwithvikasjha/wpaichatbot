@@ -10,10 +10,10 @@ if (!defined('ABSPATH')) {
 class AIChatbot_OpenAI {
     
     /**
-     * Get response from OpenAI using the /responses endpoint
+     * Get response from OpenAI using the Responses API
      */
     public static function get_response($message, $previous_response_id = null) {
-        error_log('AIChatbot: get_response() function called with message: ' . $message . ', previous_response_id: ' . ($previous_response_id ?: 'null'));
+        error_log('AIChatbot: get_response() called with message: ' . $message . ', previous_response_id: ' . ($previous_response_id ?: 'none'));
         
         $api_key = get_option('aichatbot_openai_key');
         if (empty($api_key)) {
@@ -32,24 +32,34 @@ class AIChatbot_OpenAI {
         // Get available functions
         $functions = AIChatbot_Tools::get_available_functions();
         error_log('AIChatbot: Available functions count: ' . count($functions));
-        
-        // Prepare request body for /chat/completions endpoint
+
+        // Prepare input for Responses API
+        $input = array();
+
+        if (empty($previous_response_id)) {
+            $input[] = array(
+                'role' => 'system',
+                'content' => 'You are a helpful AI assistant for a WordPress website with WooCommerce integration. You can help users with their orders, products, and general questions. Be friendly and helpful.'
+            );
+        }
+
+        $input[] = array(
+            'role' => 'user',
+            'content' => $message
+        );
+
+        // Prepare request body for /responses endpoint
         $request_body = array(
             'model' => $selected_model,
-            'messages' => array(
-                array(
-                    'role' => 'system',
-                    'content' => 'You are a helpful AI assistant for a WordPress website with WooCommerce integration. You can help users with their orders, products, and general questions. Be friendly and helpful.'
-                ),
-                array(
-                    'role' => 'user',
-                    'content' => $message
-                )
-            ),
+            'input' => $input,
             'temperature' => $model_params['temperature'],
-            'max_tokens' => $model_params['max_tokens']
+            'max_output_tokens' => $model_params['max_tokens']
         );
-        
+
+        if (!empty($previous_response_id)) {
+            $request_body['previous_response_id'] = $previous_response_id;
+        }
+
         // Add functions if available and WooCommerce is enabled
         if (!empty($functions) && get_option('aichatbot_woocommerce_enabled')) {
             $request_body['tools'] = $functions;
@@ -60,11 +70,11 @@ class AIChatbot_OpenAI {
         } else {
             error_log('AIChatbot: Function calling disabled - functions: ' . (empty($functions) ? 'none' : count($functions)) . ', WooCommerce: ' . (get_option('aichatbot_woocommerce_enabled') ? 'enabled' : 'disabled'));
         }
-        
+
         error_log('AIChatbot: Request body prepared: ' . json_encode($request_body));
-        
-        // Make API call to /chat/completions endpoint
-        $response = wp_remote_post('https://api.openai.com/v1/chat/completions', array(
+
+        // Make API call to /responses endpoint
+        $response = wp_remote_post('https://api.openai.com/v1/responses', array(
             'headers' => array(
                 'Authorization' => 'Bearer ' . $api_key,
                 'Content-Type' => 'application/json'
@@ -90,53 +100,54 @@ class AIChatbot_OpenAI {
         }
         
         $data = json_decode($body, true);
-        
-        if (!isset($data['choices']) || empty($data['choices'])) {
-            error_log('AIChatbot: Failed to parse OpenAI response - no choices');
+
+        if (!isset($data['id'])) {
+            error_log('AIChatbot: Failed to parse OpenAI response - missing id');
             return false;
         }
-        
-        $choice = $data['choices'][0];
+
         $response_text = '';
-        
-        // Extract text from the response
-        if (isset($choice['message']['content'])) {
-            $response_text = $choice['message']['content'];
+        if (!empty($data['output_text'])) {
+            $response_text = $data['output_text'];
+        } elseif (isset($data['output'][0]['content'][0]['text'])) {
+            $response_text = $data['output'][0]['content'][0]['text'];
         }
-        
+
+        $tool_calls = array();
+        if (isset($data['output'][0]['content'])) {
+            foreach ($data['output'][0]['content'] as $content_item) {
+                if (isset($content_item['type']) && $content_item['type'] === 'tool_calls' && !empty($content_item['tool_calls'])) {
+                    $tool_calls = $content_item['tool_calls'];
+                    break;
+                }
+            }
+        }
+
+        $response_id = $data['id'];
+
         // Handle tool calls if present
-        if (isset($choice['message']['tool_calls']) && !empty($choice['message']['tool_calls'])) {
-            error_log('AIChatbot: Tool calls detected: ' . json_encode($choice['message']['tool_calls']));
+        if (!empty($tool_calls)) {
+            error_log('AIChatbot: Tool calls detected: ' . json_encode($tool_calls));
 
-            // Build follow up messages including tool results
-            $tool_calls = $choice['message']['tool_calls'];
-            $follow_up_messages = $request_body['messages'];
-
-            // Add assistant message with the tool calls so the model has context
-            $follow_up_messages[] = array(
-                'role' => 'assistant',
-                'tool_calls' => $tool_calls
-            );
-
+            $tool_inputs = array();
             foreach ($tool_calls as $tool_call) {
                 $function_name = $tool_call['function']['name'];
                 $arguments = json_decode($tool_call['function']['arguments'], true);
                 $result = AIChatbot_Tools::execute_function($function_name, $arguments ?: array());
 
-                // Append tool response message
-                $follow_up_messages[] = array(
+                $tool_inputs[] = array(
                     'role' => 'tool',
                     'tool_call_id' => $tool_call['id'],
                     'content' => json_encode($result)
                 );
             }
 
-            // Prepare second request to get final response after tools executed
             $follow_up_body = array(
                 'model' => $selected_model,
-                'messages' => $follow_up_messages,
+                'input' => $tool_inputs,
+                'previous_response_id' => $data['id'],
                 'temperature' => $model_params['temperature'],
-                'max_tokens' => $model_params['max_tokens']
+                'max_output_tokens' => $model_params['max_tokens']
             );
 
             if (!empty($functions) && get_option('aichatbot_woocommerce_enabled')) {
@@ -144,7 +155,7 @@ class AIChatbot_OpenAI {
                 $follow_up_body['tool_choice'] = 'auto';
             }
 
-            $second_response = wp_remote_post('https://api.openai.com/v1/chat/completions', array(
+            $second_response = wp_remote_post('https://api.openai.com/v1/responses', array(
                 'headers' => array(
                     'Authorization' => 'Bearer ' . $api_key,
                     'Content-Type' => 'application/json'
@@ -156,21 +167,20 @@ class AIChatbot_OpenAI {
             if (!is_wp_error($second_response)) {
                 $second_body = wp_remote_retrieve_body($second_response);
                 $second_data = json_decode($second_body, true);
-                if (isset($second_data['choices'][0]['message']['content'])) {
-                    $response_text = $second_data['choices'][0]['message']['content'];
+                if (isset($second_data['output_text'])) {
+                    $response_text = $second_data['output_text'];
+                } elseif (isset($second_data['output'][0]['content'][0]['text'])) {
+                    $response_text = $second_data['output'][0]['content'][0]['text'];
                 }
+                $response_id = $second_data['id'] ?? $response_id;
             }
         }
 
         $response_text = trim($response_text);
-        
-        // Generate a response ID for consistency
-        $response_id = 'chat_' . uniqid() . '.' . microtime(true);
-        
+
         error_log('AIChatbot: Response ID: ' . $response_id);
         error_log('AIChatbot: AI response text: ' . $response_text);
-        
-        // Return both the response text and the response ID for next conversation
+
         return array(
             'response' => $response_text,
             'response_id' => $response_id
