@@ -107,11 +107,61 @@ class AIChatbot_OpenAI {
         // Handle tool calls if present
         if (isset($choice['message']['tool_calls']) && !empty($choice['message']['tool_calls'])) {
             error_log('AIChatbot: Tool calls detected: ' . json_encode($choice['message']['tool_calls']));
-            
-            // For now, just add a note about tool calls
-            $response_text .= "\n\n[Note: I have access to tools to help you with orders, products, and other tasks. Let me know if you need specific information!]";
+
+            // Build follow up messages including tool results
+            $tool_calls = $choice['message']['tool_calls'];
+            $follow_up_messages = $request_body['messages'];
+
+            // Add assistant message with the tool calls so the model has context
+            $follow_up_messages[] = array(
+                'role' => 'assistant',
+                'tool_calls' => $tool_calls
+            );
+
+            foreach ($tool_calls as $tool_call) {
+                $function_name = $tool_call['function']['name'];
+                $arguments = json_decode($tool_call['function']['arguments'], true);
+                $result = AIChatbot_Tools::execute_function($function_name, $arguments ?: array());
+
+                // Append tool response message
+                $follow_up_messages[] = array(
+                    'role' => 'tool',
+                    'tool_call_id' => $tool_call['id'],
+                    'content' => json_encode($result)
+                );
+            }
+
+            // Prepare second request to get final response after tools executed
+            $follow_up_body = array(
+                'model' => $selected_model,
+                'messages' => $follow_up_messages,
+                'temperature' => $model_params['temperature'],
+                'max_tokens' => $model_params['max_tokens']
+            );
+
+            if (!empty($functions) && get_option('aichatbot_woocommerce_enabled')) {
+                $follow_up_body['tools'] = $functions;
+                $follow_up_body['tool_choice'] = 'auto';
+            }
+
+            $second_response = wp_remote_post('https://api.openai.com/v1/chat/completions', array(
+                'headers' => array(
+                    'Authorization' => 'Bearer ' . $api_key,
+                    'Content-Type' => 'application/json'
+                ),
+                'body' => json_encode($follow_up_body),
+                'timeout' => $model_params['timeout']
+            ));
+
+            if (!is_wp_error($second_response)) {
+                $second_body = wp_remote_retrieve_body($second_response);
+                $second_data = json_decode($second_body, true);
+                if (isset($second_data['choices'][0]['message']['content'])) {
+                    $response_text = $second_data['choices'][0]['message']['content'];
+                }
+            }
         }
-        
+
         $response_text = trim($response_text);
         
         // Generate a response ID for consistency
