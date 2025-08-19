@@ -115,14 +115,17 @@ class AIChatbot_Public {
         } else {
             error_log('AIChatbot: Using existing session ID: ' . $session_id);
         }
-        
+        // Retrieve last response ID for conversation state
+        $previous_response_id = AIChatbot_Database::get_last_response_id($session_id);
+        error_log('AIChatbot: Previous response ID: ' . ($previous_response_id ?: 'none'));
+
         // Save user message to database
         $message_id = AIChatbot_Database::insert_message(
-            $user_name, 
-            $user_id, 
-            $user_email, 
-            $message, 
-            'user_input', 
+            $user_name,
+            $user_id,
+            $user_email,
+            $message,
+            'user_input',
             null, 
             null, 
             null, 
@@ -130,25 +133,20 @@ class AIChatbot_Public {
         );
         
         error_log('AIChatbot: User message saved: ' . ($message_id ? 'YES' : 'NO'));
-        
-        // Get previous response ID for conversation continuity
-        $previous_response_id = AIChatbot_Database::get_last_response_id($session_id);
-        error_log('AIChatbot: Previous response ID: ' . ($previous_response_id ?: 'none'));
-        
-        // Get AI response using /responses endpoint
-        error_log('AIChatbot: Calling OpenAI /responses API...');
+
+        // Get AI response
+        error_log('AIChatbot: Calling OpenAI API...');
         error_log('AIChatbot: Message to send: ' . $message);
-        error_log('AIChatbot: Previous response ID: ' . ($previous_response_id ?: 'none'));
         
         // Check configuration before API call
         $api_key = get_option('aichatbot_openai_key');
         $model = get_option('aichatbot_openai_model', 'gpt-3.5-turbo');
         $woocommerce_enabled = get_option('aichatbot_woocommerce_enabled');
-        
+
         error_log('AIChatbot: Configuration check - API Key: ' . (empty($api_key) ? 'MISSING' : 'SET (' . strlen($api_key) . ' chars)'));
         error_log('AIChatbot: Configuration check - Model: ' . $model);
         error_log('AIChatbot: Configuration check - WooCommerce: ' . ($woocommerce_enabled ? 'enabled' : 'disabled'));
-        
+
         $ai_response = AIChatbot_OpenAI::get_response($message, $previous_response_id);
         
         error_log('AIChatbot: OpenAI response received: ' . ($ai_response ? 'SUCCESS' : 'FAILED'));
